@@ -1,0 +1,240 @@
+---
+title: "Data Cleaning"
+author: "John Spaw"
+date: "2/21/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require("knitr")
+opts_knit$set(root.dir = "/Users/johnspaw/Google Drive/Graduate/Spring 18/STAT998/Dogs")
+
+```
+
+```{r}
+library("readxl")
+library("Amelia")
+library("ggplot2")
+library("ggthemes")
+library("rio")
+library("class")
+library(caret)
+
+#Data Load
+dogs <- read_excel("Data/dogs_reformat.xlsx", na = "NA")
+weight_df <- read_excel("~/Google Drive/Graduate/Spring 18/STAT998/Dogs/Data/dogs_weight.xlsx", na = "NA") #Data frame with additional weight column
+dogs$Weight <- weight_df$Weight
+dogs$Chr17_Obesity <- weight_df$'Chr17:19437118'
+```
+
+
+```{r cache=TRUE}
+#Adjust names to not include spaces
+names(dogs)[2] <- "Family_ID"; 
+names(dogs)[3] <- "Dog_ID"; 
+names(dogs)[4] <- "Disease"; 
+names(dogs)[6] <- "Neuter"; 
+
+
+#Recode Stringency for NA case to 0
+dogs$Stringency[is.na(dogs$Stringency)] <- 0
+dogs$Stringency <- as.factor(dogs$Stringency)
+
+#Recode Disease, Gender, Neuter to 0/1 instead of 1/2
+dogs$Disease[dogs$Disease==1] <- 0; dogs$Disease[dogs$Disease==2] <- 1
+dogs$Gender[dogs$Gender==1] <- 0; dogs$Gender[dogs$Gender==2] <- 1
+dogs$Neuter[dogs$Neuter==1] <- 0; dogs$Neuter[dogs$Neuter==2] <- 1
+
+#Set other variables as factors
+dogs$Disease <- as.factor(dogs$Disease)
+dogs$Gender <- as.factor(dogs$Gender)
+dogs$Neuter <- as.factor(dogs$Neuter)
+dogs$Color <- as.factor(dogs$Color)
+dogs$Chr1_1 <- as.factor(dogs$Chr1_1)
+dogs$Chr1_2 <- as.factor(dogs$Chr1_2)
+dogs$Chr6_1 <- as.factor(dogs$Chr6_1)
+dogs$Chr6_2 <- as.factor(dogs$Chr6_2)
+dogs$Chr11_1 <- as.factor(dogs$Chr11_1)
+dogs$Chr11_2 <- as.factor(dogs$Chr11_2)
+dogs$Chr11_3 <- as.factor(dogs$Chr11_3)
+dogs$Chr11_4 <- as.factor(dogs$Chr11_4)
+dogs$Chr11_5 <- as.factor(dogs$Chr11_5)
+dogs$Chr17_1 <- as.factor(dogs$Chr17_1)
+dogs$Chr17_Obesity <- as.factor(dogs$Chr17_Obesity)
+```
+
+```{r cache=TRUE, warning=FALSE, message=FALSE}
+#Examine missing data
+missmap(dogs)
+
+#Find rows with missing data
+dogs[!complete.cases(dogs[,-18]),] #3 missing in Chr1_2, 1 missing in Chr6_2
+dogs[!complete.cases(dogs),] #3 missing in Chr1_2, 1 missing in Chr6_2
+
+which(!complete.cases(dogs$Chr1_2)) #  19  59 111
+which(!complete.cases(dogs$Chr6_2)) #  143
+which(!complete.cases(dogs$Chr17_Obesity)) # None
+
+missing_weight <- which(!complete.cases(dogs$Weight)) # 16  18  54  95 120 145
+dogs[missing_weight,]
+dogs[which(!complete.cases(dogs$Weight)),]
+```
+
+```{r cache=TRUE}
+#Examine weight and obesity associated chromosome
+hist(dogs$Weight)
+qqnorm(dogs$Weight)
+
+#Weight vs Obesity Chr - no relation
+weight.plot <- ggplot(dogs, aes(Chr17_Obesity, Weight)) + 
+  geom_boxplot()
+weight.plot
+
+
+#Disease vs. Weight - weak relation
+disease_weight.plot <- ggplot(dogs, aes(Disease, Weight)) + 
+  geom_boxplot()
+  #geom_violin()
+disease_weight.plot
+
+
+#Disease vs. Chr_Obesity - unclear ... perform test
+disease_chrObesity.plot <- ggplot(dogs, aes(Chr17_Obesity)) + 
+  geom_dotplot(aes(color=Chr17_Obesity)) +
+  facet_grid(. ~ Disease)
+disease_chrObesity.plot
+
+disease_obesity.crosstab <- table(dogs$Disease, dogs$Chr17_Obesity)
+print(disease_obesity.crosstab)
+prop.table(disease_obesity.crosstab) #Proportions of total
+prop.table(disease_obesity.crosstab,1) #Proprtions by disease group
+  
+chisq.test(dogs$Disease, dogs$Chr17_Obesity, correct=FALSE)
+
+```
+
+```{r cache=TRUE}
+#Check balance of Neuter in Stringency groups
+neuter.plot <-  ggplot(dogs, aes(Neuter)) +
+    theme_hc() +
+    geom_bar(aes(Neuter, color=Stringency))
+neuter.plot 
+
+stringency_neuter.crosstab <- table(dogs$Stringency, dogs$Neuter)
+prop.table(stringency_neuter.crosstab,1)
+chisq.test(dogs$Stringency, dogs$Neuter, correct = FALSE)
+
+
+#Univariate Relationship: Neuter and Disease
+disease_neuter.crosstab <- table(dogs$Disease, dogs$Neuter)
+prop.table(disease_neuter.crosstab,1)
+chisq.test(dogs$Disease, dogs$Neuter, correct = FALSE)
+
+```
+
+Balance seems fine ... no univariate associations
+
+```{r cache=TRUE}
+#Create relevant data frame for model building
+#Remove Neuter, Color, Weight, Dog_ID
+columns_remove <- c("Neuter", "Color", "Dog_ID")
+dogs_subset <- dogs[ , -which(names(dogs) %in% columns_remove)]
+missmap(dogs_subset)
+
+#Remove rows with incomplete cases
+dogs_withoutmissing <- na.omit(dogs_subset)
+missmap(dogs_withoutmissing)
+
+#Export to file
+saveRDS(dogs_subset, file = "Data/dogs_processed_withmissing.rds")
+saveRDS(dogs_withoutmissing, file = "Data/dogs_processed_withoutmissing.rds")
+
+```
+
+
+```{r}
+#Mean imputing for weight
+weight_missing_index <- which(!complete.cases(dogs_subset$Weight))
+dogs_subset$Weight[weight_missing_index] <- mean(dogs_subset$Weight, na.rm = TRUE)
+nrow(dogs_subset)
+```
+
+
+
+```{r cache=TRUE}
+#Imputing missing data Chr1_2
+  rows_missing <- which(!complete.cases(dogs_subset$Chr1_2))
+  columns_to_remove <- c(1,2,3) #Stringency, Family ID, Disease
+
+  #Building test set
+  training <- dogs_subset[-rows_missing,] #remove rows with missing chr1_2
+  training <- na.omit(training) #remove missing values
+  training <- training[,-columns_to_remove]
+  
+  #Build test set
+  test <- dogs_subset[rows_missing,]
+  test <- test[,-columns_to_remove]
+
+  #train model
+  set.seed(308365)
+  trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 1)
+  knn_1_2 <-  train(Chr1_2 ~ ., data = training, method = "knn",
+                    trControl = trctrl)
+  imputed_1_2 <- predict(knn_1_2, newdata = test)
+  
+  #Add predicted values to missing rows
+  dogs_subset[rows_missing,]$Chr1_2 <- imputed_1_2
+  
+  missmap(dogs_subset)
+```
+
+```{r cache=TRUE}
+#Imputing missing data Chr6_2
+  rows_missing <- which(!complete.cases(dogs_subset$Chr6_2))
+  columns_to_remove <- c(1,2,3) #Stringency, Family ID, Disease
+  names(dogs_subset)[columns_to_remove]
+
+  #Building test set
+  training <- dogs_subset[-rows_missing,] #remove rows with missing chr1_2
+  training <- na.omit(training) #remove missing values
+  training <- training[,-columns_to_remove]
+  
+  #Build test set
+  test <- dogs_subset[rows_missing,]
+  test <- test[,-columns_to_remove]
+  names(test)
+  
+  #train model
+  set.seed(308365)
+  trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 1)
+  knn_6_2 <-  train(Chr6_2 ~ ., data = training, method = "knn",
+                    trControl = trctrl)
+  imputed_6_2 <- predict(knn_6_2, newdata = test)
+  
+  #Add predicted values to missing rows
+  dogs_subset[rows_missing,]$Chr6_2 <- imputed_6_2
+  
+  missmap(dogs_subset)
+  
+##Export to file
+saveRDS(dogs_subset, file = "Data/dogs_imputed.rds")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

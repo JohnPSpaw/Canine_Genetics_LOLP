@@ -1,0 +1,92 @@
+---
+title: "Inference"
+author: "John Spaw"
+date: "2/21/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require("knitr")
+opts_knit$set(root.dir = "/Users/johnspaw/Google Drive/Graduate/Spring 18/STAT998/Dogs")
+```
+
+```{r message=FALSE, warning=FALSE, cache=TRUE, echo = FALSE}
+library(tidyverse)
+library(pmlr)
+
+dogs <- as.data.frame(readRDS("Data/dogs_imputed.rds"))
+dogs <- dogs[, -2] # Remove family ID for now... only bring it back if needed
+names(dogs)
+```
+
+#Fit Penalized Logistic Regression Models corresponding to both trees
+###Removes first order bias, which is equivalent to penalizing the likelihood with the Jeffreys prior.
+###Tests are conducted using Likelihood Ratio statistics.
+```{r}
+library(pmlr)
+
+##### TREE 1 #####
+#Create model matrix, which will be converted to a data frame
+x1_full <- model.matrix(Disease ~ Chr11_3 + Chr6_1 + Chr11_3*Chr6_1 + Weight, data=dogs)
+terms_to_remove1 <- c(1,7,9) #corresponds to interactions not present in the decision tree
+x1_reduced <- x1_full[,-terms_to_remove1]
+df1 <- as.data.frame(x1_reduced)
+
+#Fit penalized logistic regression model corresponding to dtree1
+pmlr_fit1 <- pmlr(dogs$Disease ~ ., data = df1)
+summary(pmlr_fit1)
+p1 <- pmlr_fit1$pval
+round(p.adjust(p1, method = "BH"), 6)
+
+#Include all interactions
+pmlr_fit1_all <- pmlr(dogs$Disease ~ Chr11_3 + Chr6_1 + Chr11_3*Chr6_1 + Weight, data = dogs)
+summary(pmlr_fit1_all)
+p1_all <- pmlr_fit1_all$pval
+round(p.adjust(p1_all, method = "BH"), 4)
+```
+
+
+```{r cache = TRUE}
+##### TREE 2 #####
+#Create model matrix, which will be converted to a data frame
+x2_full <- model.matrix(Disease ~ Chr1_1 + Chr1_1*Chr1_2 + Chr1_1*Chr17_1 + Weight, data=dogs)
+terms_to_remove2 <- c(1,9,10,11,12) #corresponds to interactions not present in the decision tree
+x2_reduced <- x2_full[,-terms_to_remove2]
+df2 <- as.data.frame(x2_reduced)
+
+#Fit penalized logistic regression model corresponding to dtree1
+pmlr_fit2 <- pmlr(dogs$Disease ~ ., data = df2)
+summary(pmlr_fit2)
+p2 <- pmlr_fit2$pval; print(p2)
+round(p.adjust(p2, method = "BH"), 4)
+
+table(dogs$Chr1_1, dogs$Chr1_2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,147 @@
+---
+title: "Variable Selection"
+author: "John Spaw"
+date: "2/20/2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require("knitr")
+opts_knit$set(root.dir = "/Users/johnspaw/Google Drive/Graduate/Spring 18/STAT998/Dogs")
+```
+
+#Build decision trees
+```{r message=FALSE, warning=FALSE, cache=TRUE, echo = FALSE}
+library(tidyverse) #plotting
+library(rpart) #decision trees
+library(rpart.plot) #plotting decision trees
+library(MASS)
+library(caret)
+library(randomForest)
+library(glmnet)
+
+dogs <- as.data.frame(readRDS("Data/dogs_imputed.rds"))
+dogs <- dogs[, -2] # Remove family ID for now... only bring it back if needed
+
+
+#dogs$stringency_weights <- ifelse(dogs$Stringency == 1, 1.2, 0.8)
+names(dogs)
+```
+
+###Tree 1 built on all variables
+```{r message=FALSE, warning=FALSE, cache=TRUE, echo = FALSE}
+# Fit Decision Tree to all covariates ---------------------------
+dtree1 <- rpart(
+  Disease ~ .,
+  data = dogs,
+  #weights = stringency_weights,
+  method = "class",
+  control = rpart.control(maxdepth = 2)
+)
+#summary(decision_tree)
+
+rpart.plot(
+  dtree1,
+  type = 4,
+  extra = 3,
+  under = TRUE
+)
+
+pred <- predict(dtree1, dogs, type = "class") # vector of predictions
+predict.table <- table(dogs$Disease, pred) # table of predictions, including errors
+sum(diag(prop.table(predict.table))) # Correct classifications
+```
+
+Setting to max depth 3 only improves classification by 2.
+Using max depth 2 better addresses the core questions.
+
+
+
+\newpage
+
+###Tree 2: exlcuding Chr11_3, Chr11_2, Chr11_4, and Chr11_5 (these are all in linkage)
+
+```{r message=FALSE, warning=FALSE, cache=TRUE, echo=FALSE}
+# Build tree excluding 11_3  and 11_2 and 11_4 and 11_5---------------------------
+dtree2 <- rpart(
+  Disease ~ .,
+  data = dogs[,-c(9,10,11,12)],
+  #weights = stringency_weights,
+  method = "class",
+  control = rpart.control(maxdepth=2)
+)
+
+rpart.plot(
+  dtree2,
+  type = 4,
+  extra = 3,
+  under = TRUE
+)
+
+pred2 <- predict(dtree2, dogs, type = "class")
+predict.table2 <- table(dogs$Disease, pred2)
+predict.table2
+sum(diag(prop.table(predict.table2)))
+
+```
+\newpage
+
+
+####Comparison of Tree 1 rooted on Chr11_3 and the next best tree (Tree 5) based on different haplotype block
+```{r message=FALSE, warning=FALSE, cache=TRUE, echo=FALSE}
+index <- seq(1,length(pred))
+pred_df2 <- data_frame(index, dogs$Disease, pred, pred2)
+names(pred_df2)[2] <- "Disease"
+
+#Data frame characterizing correct classification across decision trees
+pred_df2$both_correct <- ifelse((pred == dogs$Disease)&(pred2 == dogs$Disease),1,0) #both trees give correct class
+pred_df2$correct1 <- ifelse((pred == dogs$Disease)&(pred2 != dogs$Disease),1,0) #first tree gives correct class but not second
+pred_df2$correct2 <- ifelse((pred != dogs$Disease)&(pred2 == dogs$Disease),1,0) #second tree gives correct class but not second
+pred_df2$some_correct <- pred_df2$both_correct + pred_df2$correct1 + pred_df2$correct2 #either method gives correct class
+
+pred_df2$which_correct <- ifelse(pred_df2$both_correct == 1, "Both",
+                                ifelse(pred_df2$correct1 == 1, "First only",
+                                       ifelse(pred_df2$correct2 == 1, "Second only", "Neither")))
+
+pred_df2$Correct <- factor(pred_df2$which_correct, levels = c("Both", "First only", "Second only", "Neither"))
+
+correct_barplot <- ggplot(pred_df2, aes(Disease)) +
+  geom_bar(aes(color=Correct)) +
+  facet_grid(. ~ Correct)
+correct_barplot
+
+#Do another plot 
+```
+
+\newpage
+
+
+Crosstabs match almost entirely ... linkage?
+```{r}
+table(dogs$Chr11_3, dogs$Chr1_1)
+plot(prop.table(table(dogs$Chr11_3, dogs$Chr1_1)))
+```
+
+
+
+#Random Forest Variable Selection
+```{r}
+# Variable selection using a random forest  ---------------------------
+library(randomForest)
+rand_forest <- randomForest(Disease ~ ., data = dogs)
+varImpPlot(rand_forest, type = 2)
+```
+
+
+
+
+
+
+
+
+
+
+
